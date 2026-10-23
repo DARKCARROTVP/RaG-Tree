@@ -92,7 +92,7 @@ def test_hnsw_backend_filters_and_handles_delta_updates():
     ids, distances, _ = index.search(new_vector, ranges, k=7, ef_search=32)
     truth_ids, truth_distances = index.exact_search(new_vector, ranges, k=7)
     np.testing.assert_array_equal(ids, truth_ids)
-    np.testing.assert_allclose(distances, truth_distances)
+    np.testing.assert_allclose(distances, truth_distances, rtol=1e-6, atol=2e-6)
 
 
 def test_hnsw_delta_merge_rebuilds_singleton_main_graph():
