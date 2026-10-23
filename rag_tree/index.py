@@ -313,11 +313,25 @@ class RaGTree:
         sel = max(node.selectivity, 1.0 / max(1, len(node.ids)))
         retrieve = min(len(ids), max(k, ef, int(ceil(ef / sel))))
         if self.backend == "hnswlib" and graph is not None:
-            graph.set_ef(max(retrieve, ef))
-            labels, distances = graph.knn_query(query.reshape(1, -1), k=retrieve, num_threads=1)
-            candidate_ids = labels[0].astype(np.int64)
-            candidate_distances = distances[0].astype(np.float64)
-            stats.estimated_distance_computations += int(degree * retrieve)
+            # hnswlib can reject a query on very small graphs when k is equal
+            # to the live element count (or when an M/ef combination is too
+            # tight). Keep the approximate path, but fall back to an exact
+            # scan of this local graph so filtering never fails at a leaf.
+            graph_count = int(graph.get_current_count())
+            retrieve = min(retrieve, graph_count)
+            try:
+                graph.set_ef(max(retrieve, ef))
+                labels, distances = graph.knn_query(query.reshape(1, -1), k=retrieve, num_threads=1)
+                candidate_ids = labels[0].astype(np.int64)
+                candidate_distances = distances[0].astype(np.float64)
+                stats.estimated_distance_computations += int(degree * retrieve)
+            except RuntimeError as exc:
+                if "Cannot return the results" not in str(exc):
+                    raise
+                candidate_ids = ids
+                delta = self.vectors[candidate_ids] - query[None, :]
+                candidate_distances = np.einsum("ij,ij->i", delta, delta, optimize=True)
+                stats.estimated_distance_computations += len(candidate_ids)
         else:
             candidate_ids = ids
             delta = self.vectors[candidate_ids] - query[None, :]
